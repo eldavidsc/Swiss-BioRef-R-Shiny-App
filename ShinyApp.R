@@ -25,8 +25,9 @@ source(paste0(getwd(),"/R Scripts/Ichihara.R"))
 sex_show <- c("Male","Female")
 agesel_dict <- c("10-20"=10,"20-30"=20,"30-40"=30,"40-50"=40,"50-60"=50,"60-70"=60,
                  "70-80"=70,"80-90"=80)
+core_test <- c("t-test","wilcox-test")
 clustering_type <- c("Hierarchical","Kmeans")
-number_cluster <- c(400,600,800)
+number_cluster <- c(400,800)
 significance_level_show <- c(0.05,0.01)
 Labtests <- c("Hemoglobin","Creatinine" ,"Potassium"  ,"Leukocytes" ,"Aspartate","Cholesterol")
 LabtestsPW_dict <- get_LabtestPW_dict()
@@ -38,25 +39,27 @@ cluster_tabs <- tabsetPanel(
   tabPanel("Single",
            radioButtons("sex","Biological sex",sex_show),
            selectInput("age","Select age range",selected=30,agesel_dict),
+           radioButtons("test","Select test",core_test),
            
            selectInput("sign","Significance Level",significance_level_show)),
   tabPanel("Clusters", 
            radioButtons("sex2","Biological sex",sex_show),
            selectInput("age2","Select age range",selected=30,agesel_dict),
+           radioButtons("test2","Select test",core_test),
            selectInput("sign2","Significance Level",significance_level_show),
            radioButtons("clust_type","Clustering Type",clustering_type),
            selectInput("numclust","Number of clusters",number_cluster))
 )
 
 ui <- fluidPage(
-  titlePanel("Reference Interval Estimation"),
+  titlePanel("Swiss BioRef: Reference Interval Estimation"),
   wellPanel(textOutput("try")),
   sidebarLayout(
-    sidebarPanel(selectInput("Labtests","Labtest",selected = "Creatinine",Labtests),
+    sidebarPanel(selectInput("Labtests","Analyte",selected = "Creatinine",Labtests),
                  cluster_tabs),
     mainPanel(dropdownButton(
       tags$h3("Histogram Options"),
-      sliderInput("xminmax","Select range to be plotted",min=0,max=350,value=c(0,170)),
+      sliderInput("xminmax","Select range to be plotted",min=0,max=200,value=c(0,170)),
       circle = TRUE,
       status = "danger", 
       icon = icon("gear"), width = "300px",
@@ -112,6 +115,10 @@ server <- function(input, output) {
   observeEvent(input$sign,{updateSelectInput(inputId = "sign2", selected=input$sign)})
   observeEvent(input$sign2,{updateSelectInput(inputId = "sign", selected=input$sign2)})
   ss <- reactiveVal()
+  #test
+  test <- test2 <- reactive({input$test})
+  observeEvent(input$test, {updateSelectInput(inputId = "test2", selected=input$test)})
+  observeEvent(input$test2, {updateSelectInput(inputId = "test", selected=input$test2)})
   
   #Cluster 
   v <- reactiveValues(clustering_active = F)
@@ -123,8 +130,8 @@ server <- function(input, output) {
   cluster_n <- reactive({input$numclust}) 
   
   #################### File Selection: choose which raw table is read in
-  name <- reactive({if(v$clustering_active){paste(sex(),paste0(age(),"to",age2()),1,"none",sex(),cluster_type(),cluster_n(),sep="_")
-  }else{paste(sex(),paste0(age(),"to",age2()),1,"none",sep="_")}})
+  name <- reactive({if(v$clustering_active){paste(sex(),paste0(age(),"to",age2()),test(),cluster_type(),cluster_n(),sep="_")
+  }else{paste(sex(),paste0(age(),"to",age2()),test(),sep="_")}})
   path <- reactive({paste0(getwd(),"/Labtests_Subsets/",input$Labtests,"/Ptables/")})
   filename <- reactive(paste0(name(),".txt"))
   pathway <- reactive({paste0(path(),filename())})
@@ -153,7 +160,7 @@ server <- function(input, output) {
   #################### Slice & Glomalminus
   slice <- reactive({get_slice_shiny(data(),sex(),age(),age2())}) #### <- tise
   globalminus <- reactive({globalminus_shiny(slice(),ptable_FDR(),input$xminmax[1],input$xminmax[2],name())})
-  ci <- reactive({paste("Reference Interval:",globalminus()$m.ci.lower,"-",globalminus()$m.ci.higher,slice()$LabResultUnit[1])})
+  ci <- reactive({paste("Reference Interval Estimate:",globalminus()$m.ci.lower,"-",globalminus()$m.ci.higher,slice()$LabResultUnit[1])})
   g.ci.lower <- reactive({globalminus()$g.ci.lower})
   g.ci.higher <- reactive({globalminus()$g.ci.higher})
   m.ci.lower <- reactive({globalminus()$m.ci.lower})
@@ -163,12 +170,14 @@ server <- function(input, output) {
   n_diag_slice <- reactive({length(unique(ptable_raw()$Diag))})
   n_diag_sign <- reactive({dim(sig_diag_list())[1]})
   n_diag_ratio <- reactive({round((n_diag_sign()/n_diag_slice())*100,2)})
-  output$n_diag_slice <- renderText({paste0("Total diagnoses checked: ",n_diag_slice())})
-  output$n_diag_sign <- renderText({paste0("Thereof significant: ",n_diag_sign())})
+  output$n_diag_slice <- renderText({paste0("Total diagnoses in selected slice: ",n_diag_slice())})
+  output$n_diag_sign <- renderText({paste0("Thereof significantly different from global: ",n_diag_sign())})
   output$n_diag_ratio <- renderText({paste0("Percentage: ",n_diag_ratio(),"%")})
   
   #################### Diag inspect stuff (Tab 2)
   output$diag_inspect <- renderUI({selectInput("diag_inspect","Select Diag for inspection",sig_diag_list())})
+  #output$diag_inspect <- renderUI({pickerInput("diag_inspect","Select Diag for inspection",sig_diag_list())})
+  
   output$mueter <- renderText(input$diag_inspect)
   diag_compare_density_plot <- reactive({diag_compare_density(slice(),input$diag_inspect,input$bandwidth)}) 
   output$diag_compare_density_plot <- renderPlotly(diag_compare_density_plot())

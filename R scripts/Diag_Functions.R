@@ -393,6 +393,38 @@ get_matches <- function(toll){
   return(summ[order(summ$n,decreasing = T),])
 }
 
+globalminus_shiny_0.5 <- function(slice,p0,min_x,max_x,main){
+  #Function to display a plot summarizing the main results.
+  #Results include histograms of global distribution and minus distribution
+  #Density of minus distribution and ichihara Reference Interval estimates of
+  #Global (dotted) and Minus (normal) vertical lines
+  decimals <- max(decimal_places(slice[1:50,]$LabResultValue))
+  dens_ylim <- if(decimals==0){0.1}else{1}
+  minus <- exclude(slice,dissect(p0,T))
+  g_ichi <- ichihara(slice$LabResultValue)
+  m_ichi <- ichihara(minus$LabResultValue)
+  g.lower <- g_ichi$lower.limit.low
+  g.higher <- g_ichi$upper.limit.high
+  m.lower <- m_ichi$lower.limit.low
+  m.higher <- m_ichi$upper.limit.low
+  r_ich <- round(rnorm(dim(minus)[1],m_ichi$mean,m_ichi$sd),decimals)
+  name_global <- paste0("Global n=",dim(slice)[1])
+  name_minus <- paste0("Minus n=",dim(minus)[1])
+  name_ichi <- "Minus Density"
+  #densy <- density(minus$LabResultValue,bw=2)
+  #densy <- density(r_ich,bw=2)
+  
+  p <- plot_ly(alpha=0.6,x=slice$LabResultValue,type="histogram",name=name_global,colors="blue") %>% 
+    add_histogram(x=minus$LabResultValue,name=paste("Minus n=",dim(minus)[1]),marker = list(color = "#458B74")) %>% 
+    #add_trace(x=densy$x,y=densy$y,type="scatter",mode="lines",yaxis="y2",name=name_ichi,line=list(color="#CD6600")) %>% 
+    layout(yaxis2=list(overlaying="y",side="right",range=c(0,dens_ylim)),
+           title=main,barmode="overlay",shapes=list(vline_dot(g.lower),vline_dot(g.higher),vline(m.lower),vline(m.higher)),
+           xaxis=list(range=c(min_x,max_x)))
+  
+  return(list(plot = p, m.ci.lower= round(m.lower,3), m.ci.higher=round(m.higher,3),
+              g.ci.lower=round(g.lower,3),g.ci.higher=round(g.higher,3)))
+}
+
 globalminus_shiny <- function(slice,p0,min_x,max_x,main){
   #Function to display a plot summarizing the main results.
   #Results include histograms of global distribution and minus distribution
@@ -410,21 +442,22 @@ globalminus_shiny <- function(slice,p0,min_x,max_x,main){
   r_ich <- round(rnorm(dim(minus)[1],m_ichi$mean,m_ichi$sd),decimals)
   name_global <- paste0("Global n=",dim(slice)[1])
   name_minus <- paste0("Minus n=",dim(minus)[1])
-  name_ichi <- paste0("Healthy patients n=",dim(minus)[1])
+  name_ichi <- "Minus Density"
   #densy <- density(minus$LabResultValue,bw=2)
-  densy <- density(r_ich,bw=2)
+  #densy <- density(r_ich,bw=2)
   
   p <- plot_ly(alpha=0.6,x=slice$LabResultValue,type="histogram",name=name_global,colors="blue") %>% 
     add_histogram(x=minus$LabResultValue,name=paste("Minus n=",dim(minus)[1]),marker = list(color = "#458B74")) %>% 
-    add_trace(x=densy$x,y=densy$y,type="scatter",mode="lines",yaxis="y2",name=name_ichi,line=list(color="#CD6600")) %>% 
-    layout(yaxis2=list(overlaying="y",side="right",range=c(0,dens_ylim)),
+    add_trace(x = c(0,0.1), y = c(0,0.1), yaxis="y2", type = 'scatter',mode = 'lines', line = list(color = "grey", dash="dot"),  name = 'Global RefInt') %>% 
+    add_trace(x = c(0, 0.1), y = c(0,0.1), yaxis="y2",type = 'scatter', mode = 'lines', line = list(color = "#2F4F4F"), name = 'Minus RefInt') %>% 
+    #add_trace(x=densy$x,y=densy$y,type="scatter",mode="lines",yaxis="y2",name=name_ichi,line=list(color="#CD6600")) %>% 
+    layout(yaxis2=list(overlaying="y",side="right",showticklabels = FALSE, showline = FALSE,showgrid = FALSE,range = c(0,1000)),
            title=main,barmode="overlay",shapes=list(vline_dot(g.lower),vline_dot(g.higher),vline(m.lower),vline(m.higher)),
            xaxis=list(range=c(min_x,max_x)))
   
   return(list(plot = p, m.ci.lower= round(m.lower,3), m.ci.higher=round(m.higher,3),
               g.ci.lower=round(g.lower,3),g.ci.higher=round(g.higher,3)))
 }
-
 
 
 # qval / FDR --------------------------------------------------------------
@@ -469,6 +502,50 @@ tt_pval <- function(slice,alpha=1,MTcorr="none",clust,minimum=5){
   return(out <- out[out$pval < alpha,])
 }
 
+app_tt_pval_x <- function(tag,slice,minimum,test){
+  #Custom function to be used in tt_pval
+  diag_i <- include(slice,tag)
+  if(length(diag_i$LabResultValue) >= minimum){
+    globalslice <- exclude(slice,tag)
+    if(test == "wilcox-test"){
+      ou <- wilcox.test(globalslice$LabResultValue,diag_i$LabResultValue)$p.value}
+    if(test == "t-test"){
+      ou <- t.test(globalslice$LabResultValue,diag_i$LabResultValue)$p.value}
+    return(list(Diag=paste(na.omit(as.character(as.vector(tag))),collapse=" "),n=length(diag_i$LabResultValue),mu=mean(diag_i$LabResultValue),sd=sd(diag_i$LabResultValue),pval=ou))}
+}
+
+tt_pval_x <- function(slice,alpha=1,MTcorr="none",clust,test="t-test",minimum=5){
+  #slice to be output generated from get_slice() function
+  #alpha = significance level
+  #mimimum of observations for each Diag to be compared to global (t.test has min of 5)
+  #option for Holm-Bonferri correction or FDR/qvalue correction
+  #option to pass cluster bigslice as argument ( must be created by get_clusters())
+  #To create a bigslice element create one for each sex and age range from 20-70
+  if(!missing(clust)){
+    out <- apply(clust,1,app_tt_pval_x,slice,minimum,test)
+  }else{
+    out <- lapply(get_diags(slice),app_tt_pval_x,slice,minimum,test)}
+  out <- do.call(rbind.data.frame, out)
+  if(MTcorr == "HB"){
+    out <- out[order(out$pval),]
+    out <- out %>% 
+      mutate(afraqm = seq(length(out$pval),1)) %>% 
+      mutate(corr_alpha =  alpha/afraqm) %>% 
+      mutate(HB_significance = pval < alpha/afraqm)
+    return(out <- out[out$HB_significance == T,])} 
+  if(MTcorr == "FDR"){
+    out <- out[order(out$pval),]
+    qobj <- qvalue(out$pval, fdr.level = alpha)
+    summary(qobj)
+    plot(qobj)
+    out <- out %>% 
+      mutate(qval=qobj$qvalues, significant =  qobj$significant)
+    return(out <- out[out$significant == T,])}
+  out <- out[order(out$pval),]
+  return(out <- out[out$pval < alpha,])
+}
+
+
 qval_summary <- function(qobj){
   #Capture annoying consol output of summary(qobj)
   wasfrau <- capture.output(summary(qobj))
@@ -503,13 +580,15 @@ diag_compare_hist <- function(slice,tag,nbinsx=max(slice$LabResultValue)){
 
 diag_compare_density <- function(slice,tag,bw){
   #Function to be used in "Inspect Single Diagnose" tab in Shiny app
+  tag_vector <- paste(na.omit(as.character(tag,na.rm=T)),collapse=" ")
+  tag <- str_split(tag," ")[[1]]
   decimals <- max(decimal_places(slice[1:50,]$LabResultValue))
   dens_ylim <- if(decimals==0){0.1}else{1}
   diag <- include(slice,tag)
   densy <- density(diag$LabResultValue,bw=bw)
   label_global <- paste0("Global n=",dim(slice)[1])
-  label_diag <- paste0(tag," n=",dim(diag)[1])
-  label_title <- paste0("Relative Location of Global and ",tag," Diagnosis Distributions")
+  label_diag <- paste0(tag_vector," n=",dim(diag)[1])
+  label_title <- paste0("Relative Location of Global and ",tag_vector," Diagnosis Distributions")
   
   plot_ly(alpha=0.6,x=slice$LabResultValue,type="histogram",name=label_global) %>% 
     add_trace(x=densy$x,y=densy$y,type="scatter",mode="lines",fill="tozeroy",yaxis="y2",name=label_diag) %>% 
@@ -557,7 +636,6 @@ make_arrow <- function(ci.l.g,ci.l.m,ci.u.m,ci.u.g, unit){
   return(i)
 }
 
-#make_arrow(2,3,6,5,"Geil")
 
 
 
