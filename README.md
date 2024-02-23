@@ -1,5 +1,5 @@
 # Quickguide Swiss BioRef Shiny App Setup
-# Master's thesis project of David Schaer
+Master's thesis project of David Schaer
 
 In order to use the BioRef Shiny App move your dataset into this folder as a .csv file.
 By sourcing the file Initiate_Session.R your dataset will be read and several .rds subset files will be created, one for each of the Labtestes Aspartate, Creatinine, Hemoglobin, Cholesterol, Potassium and Leukocytes. Libraries containing statistical calculation results will be created based on these subsets for each of the analytes.
